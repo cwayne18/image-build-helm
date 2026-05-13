@@ -30,8 +30,9 @@ jobs:
         with:
           version: v0.110.2
 
-      - name: Delete leftover UpdateCLI branches
+      - name: Delete leftover Updatecli branches
         run: |
+          touch closed_prs_branches.txt open_prs_branches.txt
           gh pr list \
             --search "is:closed is:pr head:updatecli_" \
             --json headRefName \
