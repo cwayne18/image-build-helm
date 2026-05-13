@@ -1,0 +1,170 @@
+name: Release
+on:
+  release:
+    types: [published]
+
+env:
+  GITHUB_ACTION_TAG: ${{ github.ref_name }}
+
+jobs:
+  build-amd64-digest:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+    - name: "Read secrets"
+      if: github.repository_owner == 'rancher'
+      uses: rancher-eio/read-vault-secrets@0da85151ad1f19ed7986c41587e45aac1ace74b6 # v3
+      with:
+        secrets: |
+          secret/data/github/repo/${{ github.repository }}/dockerhub/${{ github.repository_owner }}/credentials username | DOCKER_USERNAME ;
+          secret/data/github/repo/${{ github.repository }}/dockerhub/${{ github.repository_owner }}/credentials password | DOCKER_PASSWORD ;
+          secret/data/github/repo/${{ github.repository }}/rancher-prime-registry/credentials registry | PRIME_REGISTRY ;
+          secret/data/github/repo/${{ github.repository }}/rancher-prime-registry/credentials username | PRIME_REGISTRY_USERNAME ;
+          secret/data/github/repo/${{ github.repository }}/rancher-prime-registry/credentials password | PRIME_REGISTRY_PASSWORD
+
+    - name: Build and push amd64 digest image
+      uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # v0.66.0
+      with:
+        image: hardened-helm
+        make-target: image-push-digest
+        platforms: linux/amd64
+        tag: ${{ github.event.release.tag_name }}
+        public-repo: ${{ github.repository_owner }}
+        public-username: ${{ github.repository_owner == 'rancher' && env.DOCKER_USERNAME || secrets.DOCKER_USERNAME }}
+        public-password: ${{ github.repository_owner == 'rancher' && env.DOCKER_PASSWORD || secrets.DOCKER_PASSWORD }}
+
+        prime-repo: rancher
+        prime-make-target: image-push-prime-digest
+        prime-registry: ${{ env.PRIME_REGISTRY }}
+        prime-username: ${{ env.PRIME_REGISTRY_USERNAME }}
+        prime-password: ${{ env.PRIME_REGISTRY_PASSWORD }}
+        push-to-prime: ${{ github.repository_owner == 'rancher' }}
+
+    - name: Upload metadata files
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: metadata-amd64
+        path: metadata-*.json
+        if-no-files-found: error
+        retention-days: 1
+
+  build-arm64-digest:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-24.04-arm
+    steps:
+    - name: Check out code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+    - name: "Read secrets"
+      if: github.repository_owner == 'rancher'
+      uses: rancher-eio/read-vault-secrets@0da85151ad1f19ed7986c41587e45aac1ace74b6 # v3
+      with:
+        secrets: |
+          secret/data/github/repo/${{ github.repository }}/dockerhub/${{ github.repository_owner }}/credentials username | DOCKER_USERNAME ;
+          secret/data/github/repo/${{ github.repository }}/dockerhub/${{ github.repository_owner }}/credentials password | DOCKER_PASSWORD ;
+          secret/data/github/repo/${{ github.repository }}/rancher-prime-registry/credentials registry | PRIME_REGISTRY ;
+          secret/data/github/repo/${{ github.repository }}/rancher-prime-registry/credentials username | PRIME_REGISTRY_USERNAME ;
+          secret/data/github/repo/${{ github.repository }}/rancher-prime-registry/credentials password | PRIME_REGISTRY_PASSWORD
+
+    - name: Build and push arm64 digest image
+      uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # v0.66.0
+      with:
+        image: hardened-helm
+        make-target: image-push-digest
+        platforms: linux/arm64
+        tag: ${{ github.event.release.tag_name }}
+        public-repo: ${{ github.repository_owner }}
+        public-username: ${{ github.repository_owner == 'rancher' && env.DOCKER_USERNAME || secrets.DOCKER_USERNAME }}
+        public-password: ${{ github.repository_owner == 'rancher' && env.DOCKER_PASSWORD || secrets.DOCKER_PASSWORD }}
+
+        prime-repo: rancher
+        prime-make-target: image-push-prime-digest
+        prime-registry: ${{ env.PRIME_REGISTRY }}
+        prime-username: ${{ env.PRIME_REGISTRY_USERNAME }}
+        prime-password: ${{ env.PRIME_REGISTRY_PASSWORD }}
+        push-to-prime: ${{ github.repository_owner == 'rancher' }}
+
+    - name: Upload metadata files
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: metadata-arm64
+        path: metadata-*.json
+        if-no-files-found: error
+        retention-days: 1
+
+  merge:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    needs:
+      - build-amd64-digest
+      - build-arm64-digest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download metadata files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: metadata-*
+          merge-multiple: true
+
+      - name: Display downloaded files
+        run: ls -la metadata-*
+
+      - name: Set DOCKERHUB_REPO
+        run: |
+          if [ "${{ github.repository_owner }}" == "rancher" ]; then
+            echo "DOCKERHUB_REPO=rancher/hardened-helm" >> $GITHUB_ENV
+          else
+            echo "DOCKERHUB_REPO=${{ secrets.DOCKER_USERNAME }}/hardened-helm" >> $GITHUB_ENV
+          fi
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.DOCKERHUB_REPO }}
+
+      - name: "Read secrets"
+        if: github.repository_owner == 'rancher'
+        uses: rancher-eio/read-vault-secrets@0da85151ad1f19ed7986c41587e45aac1ace74b6 # v3
+        with:
+          secrets: |
+            secret/data/github/repo/${{ github.repository }}/dockerhub/${{ github.repository_owner }}/credentials username | DOCKER_USERNAME ;
+            secret/data/github/repo/${{ github.repository }}/dockerhub/${{ github.repository_owner }}/credentials password | DOCKER_PASSWORD ;
+            secret/data/github/repo/${{ github.repository }}/rancher-prime-registry/credentials registry | PRIME_REGISTRY ;
+            secret/data/github/repo/${{ github.repository }}/rancher-prime-registry/credentials username | PRIME_REGISTRY_USERNAME ;
+            secret/data/github/repo/${{ github.repository }}/rancher-prime-registry/credentials password | PRIME_REGISTRY_PASSWORD
+
+      - name: Create manifest list and push
+        id: push-manifest
+        uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # v0.66.0
+        env:
+          DOCKER_METADATA_OUTPUT_JSON: ${{ steps.meta.outputs.json }}
+        with:
+          make-target: manifest-push
+          image: hardened-helm
+          tag: ${{ github.event.release.tag_name }}
+
+          public-repo: ${{ github.repository_owner }}
+          public-username: ${{ github.repository_owner == 'rancher' && env.DOCKER_USERNAME || secrets.DOCKER_USERNAME }}
+          public-password: ${{ github.repository_owner == 'rancher' && env.DOCKER_PASSWORD || secrets.DOCKER_PASSWORD }}
+
+          prime-repo: rancher
+          prime-registry: ${{ env.PRIME_REGISTRY }}
+          prime-username: ${{ env.PRIME_REGISTRY_USERNAME }}
+          prime-password: ${{ env.PRIME_REGISTRY_PASSWORD }}
+          push-to-prime: ${{ github.repository_owner == 'rancher' }}
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect ${{ github.repository_owner }}/hardened-helm:${{ github.event.release.tag_name }}
