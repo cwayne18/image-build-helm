@@ -17,7 +17,7 @@ TAG ?= ${GITHUB_ACTION_TAG}
 SRC ?= github.com/helm/helm
 
 ifeq ($(TAG),)
-TAG := v4.1.4$(BUILD_META)
+TAG := v4.2.0$(BUILD_META)
 endif
 
 ifeq (,$(filter %$(BUILD_META),$(TAG)))
