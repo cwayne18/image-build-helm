@@ -1,4 +1,4 @@
-ARG GO_IMAGE=rancher/hardened-build-base:v1.25.14b1
+ARG GO_IMAGE=rancher/hardened-build-base:v1.25.5b3
 FROM ${GO_IMAGE} AS builder
 
 RUN set -x && \
